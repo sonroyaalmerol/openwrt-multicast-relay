@@ -1,0 +1,5 @@
+config multicast-relay 'main'
+	option enabled '0'
+	option interfaces '192.168.3.0/24 192.168.1.0/24'
+	option foreground '1'
+	option verbose '0'

@@ -1,0 +1,83 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+PROG=/usr/bin/multicast-relay
+
+start_service() {
+	local enabled interfaces ttl ssdp_unicast mdns_force_unicast
+	local no_mdns no_ssdp no_sonos allow_non_ether foreground verbose
+	local one_interface remote_port remote_retry aes_key if_filter
+
+	config_load multicast-relay
+	config_get enabled main enabled 0
+	[ "$enabled" -eq 0 ] && return 0
+
+	config_get interfaces main interfaces
+	[ -z "$interfaces" ] && return 0
+
+	config_get foreground main foreground 1
+	config_get verbose main verbose 0
+	config_get ttl main ttl
+	config_get ssdp_unicast main ssdpUnicastAddr
+	config_get mdns_force_unicast main mdnsForceUnicast 0
+	config_get no_mdns main noMDNS 0
+	config_get no_ssdp main noSSDP 0
+	config_get no_sonos main noSonosDiscovery 0
+	config_get allow_non_ether main allowNonEther 0
+	config_get one_interface main oneInterface 0
+	config_get remote_port main remotePort 1900
+	config_get remote_retry main remoteRetry 5
+	config_get aes_key main aes
+	config_get if_filter main ifFilter
+
+	procd_open_instance
+	procd_set_param command "$PROG" --foreground --interfaces "$(echo "$interfaces" | tr ' ' ',')"
+
+	[ -n "$ttl" ] && procd_append_param command --ttl "$ttl"
+	[ -n "$ssdp_unicast" ] && procd_append_param command --ssdpUnicastAddr "$ssdp_unicast"
+	[ "$mdns_force_unicast" -eq 1 ] && procd_append_param command --mdnsForceUnicast
+	[ "$no_mdns" -eq 1 ] && procd_append_param command --noMDNS
+	[ "$no_ssdp" -eq 1 ] && procd_append_param command --noSSDP
+	[ "$no_sonos" -eq 1 ] && procd_append_param command --noSonosDiscovery
+	[ "$allow_non_ether" -eq 1 ] && procd_append_param command --allowNonEther
+	[ "$one_interface" -eq 1 ] && procd_append_param command --oneInterface
+	[ "$verbose" -eq 1 ] && procd_append_param command --verbose
+	[ -n "$remote_port" ] && procd_append_param command --remotePort "$remote_port"
+	[ -n "$remote_retry" ] && procd_append_param command --remoteRetry "$remote_retry"
+	[ -n "$aes_key" ] && procd_append_param command --aes "$aes_key"
+	[ -n "$if_filter" ] && procd_append_param command --ifFilter "$if_filter"
+
+	config_list_foreach main masquerade append_masquerade
+	config_list_foreach main noTransmitInterfaces append_no_transmit
+	config_list_foreach main relay append_relay
+	config_list_foreach main listen append_listen
+	config_list_foreach main remote append_remote
+
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/multicast-relay
+	procd_close_instance
+}
+
+append_masquerade() {
+	procd_append_param command --masquerade "$1"
+}
+
+append_no_transmit() {
+	procd_append_param command --noTransmitInterfaces "$1"
+}
+
+append_relay() {
+	procd_append_param command --relay "$1"
+}
+
+append_listen() {
+	procd_append_param command --listen "$1"
+}
+
+append_remote() {
+	procd_append_param command --remote "$1"
+}

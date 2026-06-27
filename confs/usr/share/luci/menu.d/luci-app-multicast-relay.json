@@ -1,0 +1,14 @@
+{
+	"admin/services/multicast-relay": {
+		"title": "Multicast Relay",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "multicast-relay/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-multicast-relay" ],
+			"uci": { "multicast-relay": true }
+		}
+	}
+}

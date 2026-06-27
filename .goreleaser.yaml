@@ -23,7 +23,7 @@ nfpm:
     vendor: sonroyaalmerol
     homepage: https://github.com/sonroyaalmerol/openwrt-multicast-relay
     maintainer: sonroyaalmerol@gmail.com
-    description: Multicast relay for OpenWrt — relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces
+    description: Relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces
     license: MIT
     formats:
       - apk
@@ -34,16 +34,38 @@ nfpm:
     contents:
       - src: multicast-relay
         dst: /usr/bin/multicast-relay
-      - src: scripts/multicast-relay.init
+      - src: confs/etc/init.d/multicast-relay
         dst: /etc/init.d/multicast-relay
         file_info:
           mode: 0755
-      - src: scripts/multicast-relay.conf
+      - src: confs/etc/config/multicast-relay
         dst: /etc/config/multicast-relay
         type: config|noreplace
     scripts:
       postinstall: scripts/postinstall.sh
       preremove: scripts/preremove.sh
+
+  - id: luci
+    package_name: luci-app-multicast-relay
+    vendor: sonroyaalmerol
+    homepage: https://github.com/sonroyaalmerol/openwrt-multicast-relay
+    maintainer: sonroyaalmerol@gmail.com
+    description: LuCI web interface for multicast-relay
+    license: MIT
+    formats:
+      - apk
+    archs:
+      - all
+    contents:
+      - src: confs/usr/share/luci/menu.d/luci-app-multicast-relay.json
+        dst: /usr/share/luci/menu.d/luci-app-multicast-relay.json
+      - src: confs/usr/share/rpcd/acl.d/luci-app-multicast-relay.json
+        dst: /usr/share/rpcd/acl.d/luci-app-multicast-relay.json
+      - src: confs/www/luci-static/resources/view/multicast-relay/config.js
+        dst: /www/luci-static/resources/view/multicast-relay/config.js
+    depends:
+      - multicast-relay
+      - luci-lua-runtime
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Tag }}_checksums.txt"

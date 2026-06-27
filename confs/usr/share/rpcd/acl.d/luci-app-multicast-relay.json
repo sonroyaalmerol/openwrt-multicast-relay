@@ -1,0 +1,17 @@
+{
+	"luci-app-multicast-relay": {
+		"description": "Grant access to Multicast Relay configuration",
+		"read": {
+			"ubus": {
+				"luci": [ "setInitAction" ]
+			},
+			"uci": [ "multicast-relay" ]
+		},
+		"write": {
+			"ubus": {
+				"luci": [ "setInitAction" ]
+			},
+			"uci": [ "multicast-relay" ]
+		}
+	}
+}

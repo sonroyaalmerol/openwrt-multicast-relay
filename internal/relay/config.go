@@ -67,7 +67,7 @@ func ParseConfig(args []string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Interfaces:       splitNonEmpty(*ifaces),
+		Interfaces:       splitInterfaces(*ifaces),
 		NoTransmitIfaces: splitNonEmpty(*noTransmit),
 		FilterFile:       *ifFilter,
 		SSDPUnicastAddr:  *ssdpUnicast,
@@ -114,6 +114,26 @@ func splitNonEmpty(s string) []string {
 		v = strings.TrimSpace(v)
 		if v != "" {
 			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func splitInterfaces(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var result []string
+	for field := range strings.FieldsSeq(s) {
+		if strings.Contains(field, ",") {
+			for v := range strings.SplitSeq(field, ",") {
+				v = strings.TrimSpace(v)
+				if v != "" {
+					result = append(result, v)
+				}
+			}
+		} else {
+			result = append(result, field)
 		}
 	}
 	return result
