@@ -8,7 +8,7 @@ WORKDIR="$(cd "$(dirname "$0")/.." && pwd)"
 SDK_DIR="${WORKDIR}/sdk"
 
 declare -A TARGET_MAP=(
-	[ipq806x]="ipq806x/generic eabi"
+	[ipq806x]="ipq806x/generic neon-vfpv4"
 )
 
 TARGET_PATH="${TARGET_MAP[$TARGET]%% *}"
@@ -85,22 +85,7 @@ WRAPPER
 fi
 
 echo ">>> Patching GOTOOLCHAIN=local into SDK golang infrastructure..."
-GOLANG_DIR="${SDK}/feeds/packages/lang/golang"
-
-sed -i '/^HOST_GO_VARS?=/,/^$/ {
-    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-version.mk"
-
-sed -i '/^GO_HOST_BUILD_VARS=/,/^$/ {
-    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-host-build.mk"
-
-sed -i '/^GO_HOST_TARGET_VARS=/,/^$/ {
-    /PATH=.*openwrt:.*\$\$\$\$PATH"/ a\\tGOTOOLCHAIN=local' "${GOLANG_DIR}/golang-host-build.mk"
-
-sed -i '/^HOST_GO_VARS=/,/^$/ {
-    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-bootstrap/Makefile"
+python3 "${WORKDIR}/scripts/patch-sdk-gotochain.py" "${SDK}/feeds/packages/lang/golang"
 
 echo ">>> Updating feeds..."
 (cd "${SDK}" && ./scripts/feeds update -a 2>&1 | tail -10)

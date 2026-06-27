@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +28,7 @@ jobs:
           TARGET_PATH="ipq806x/generic"
           BOARD="ipq806x"
           SUBTARGET="generic"
-          ARCH_SUFFIX="eabi"
+          ARCH_SUFFIX="neon-vfpv4"
 
           SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${TARGET_PATH}/openwrt-sdk-${OPENWRT_VERSION}-${BOARD}-${SUBTARGET}_gcc-14.3.0_musl_${ARCH_SUFFIX}.Linux-x86_64.tar.zst"
           curl -fSL -o sdk.tar.zst "${SDK_URL}"
@@ -50,19 +52,8 @@ jobs:
           cp sdk/feeds.conf.default sdk/feeds.conf
           echo "src-link multicast_relay ${GITHUB_WORKSPACE}/openwrt" >> sdk/feeds.conf
 
-      - name: patch sdk gotochain
-        run: |
-          GOLANG_DIR="${GITHUB_WORKSPACE}/sdk/feeds/packages/lang/golang"
-
-          sed -i '/^HOST_GO_VARS?=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-version.mk"
-
-          sed -i '/^GO_HOST_BUILD_VARS=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-host-build.mk"
-          sed -i '/^GO_HOST_TARGET_VARS=/,/^$/{ /PATH=.*openwrt:.*\$\$\$\$PATH"/a\\tGOTOOLCHAIN=local' "${GOLANG_DIR}/golang-host-build.mk"
-
-          sed -i '/^HOST_GO_VARS=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
-}' "${GOLANG_DIR}/golang-bootstrap/Makefile"
+      - name: patch sdk golang for offline builds
+        run: python3 scripts/patch-sdk-gotochain.py "${GITHUB_WORKSPACE}/sdk/feeds/packages/lang/golang"
 
       - name: update and install feeds
         run: |
@@ -77,10 +68,14 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-multicast-relay=y" >> .config
           make defconfig
 
-      - name: build packages
+      - name: build multicast-relay
         run: |
           cd sdk
           make package/multicast-relay/compile V=s -j$(nproc)
+
+      - name: build luci-app-multicast-relay
+        run: |
+          cd sdk
           make package/luci-app-multicast-relay/compile V=s -j$(nproc)
 
       - name: collect packages
