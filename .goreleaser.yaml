@@ -1,0 +1,56 @@
+builds:
+  - id: multicast-relay
+    main: ./cmd/multicast-relay
+    binary: multicast-relay
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+    goarch:
+      - arm
+      - arm64
+      - amd64
+    goarm:
+      - 7
+
+nfpm:
+  - id: apk
+    package_name: multicast-relay
+    vendor: sonroyaalmerol
+    homepage: https://github.com/sonroyaalmerol/openwrt-multicast-relay
+    maintainer: sonroyaalmerol@gmail.com
+    description: Multicast relay for OpenWrt — relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces
+    license: MIT
+    formats:
+      - apk
+    archs:
+      - armhf
+      - arm64
+      - amd64
+    contents:
+      - src: multicast-relay
+        dst: /usr/bin/multicast-relay
+      - src: scripts/multicast-relay.init
+        dst: /etc/init.d/multicast-relay
+        file_info:
+          mode: 0755
+      - src: scripts/multicast-relay.conf
+        dst: /etc/config/multicast-relay
+        type: config|noreplace
+    scripts:
+      postinstall: scripts/postinstall.sh
+      preremove: scripts/preremove.sh
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

@@ -1,0 +1,47 @@
+#!/bin/sh
+
+[ -x /usr/bin/multicast-relay ] || exit 0
+
+START=99
+STOP=10
+
+USE_PROCD=1
+PROG=/usr/bin/multicast-relay
+
+start_service() {
+	local interfaces enabled ttl ssdp_unicast mdns_force_unicast no_mdns no_ssdp no_sonos allow_non_ether masquerade foreground verbose
+
+	config_load multicast-relay
+	config_get enabled general enabled 0
+	[ "$enabled" -eq 0 ] && exit 0
+
+	config_get interfaces general interfaces
+	config_get ttl general ttl
+	config_get ssdp_unicast general ssdpUnicastAddr
+	config_get mdns_force_unicast general mdnsForceUnicast 0
+	config_get no_mdns general noMDNS 0
+	config_get no_ssdp general noSSDP 0
+	config_get no_sonos general noSonosDiscovery 0
+	config_get allow_non_ether general allowNonEther 0
+	config_get masquerade general masquerade
+	config_get foreground general foreground 0
+	config_get verbose general verbose 0
+
+	procd_open_instance
+	procd_set_param command "$PROG" --foreground --interfaces $interfaces
+
+	[ -n "$ttl" ] && procd_append_param command --ttl "$ttl"
+	[ -n "$ssdp_unicast" ] && procd_append_param command --ssdpUnicastAddr "$ssdp_unicast"
+	[ "$mdns_force_unicast" -eq 1 ] && procd_append_param command --mdnsForceUnicast
+	[ "$no_mdns" -eq 1 ] && procd_append_param command --noMDNS
+	[ "$no_ssdp" -eq 1 ] && procd_append_param command --noSSDP
+	[ "$no_sonos" -eq 1 ] && procd_append_param command --noSonosDiscovery
+	[ "$allow_non_ether" -eq 1 ] && procd_append_param command --allowNonEther
+	[ -n "$masquerade" ] && procd_append_param command --masquerade $masquerade
+	[ "$verbose" -eq 1 ] && procd_append_param command --verbose
+
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
