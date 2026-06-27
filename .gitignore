@@ -1,7 +1,6 @@
 /dist/
+/sdk/
 *.apk
-*.deb
-*.rpm
 *.tar.gz
-*.tar.xz
+*.tar.zst
 /multicast-relay
