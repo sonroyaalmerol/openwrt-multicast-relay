@@ -28,7 +28,7 @@ jobs:
           TARGET_PATH="ipq806x/generic"
           BOARD="ipq806x"
           SUBTARGET="generic"
-          ARCH_SUFFIX="neon-vfpv4"
+          ARCH_SUFFIX="eabi"
 
           SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${TARGET_PATH}/openwrt-sdk-${OPENWRT_VERSION}-${BOARD}-${SUBTARGET}_gcc-14.3.0_musl_${ARCH_SUFFIX}.Linux-x86_64.tar.zst"
           curl -fSL -o sdk.tar.zst "${SDK_URL}"

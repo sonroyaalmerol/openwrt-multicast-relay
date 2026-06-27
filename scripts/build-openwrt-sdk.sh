@@ -8,7 +8,7 @@ WORKDIR="$(cd "$(dirname "$0")/.." && pwd)"
 SDK_DIR="${WORKDIR}/sdk"
 
 declare -A TARGET_MAP=(
-	[ipq806x]="ipq806x/generic neon-vfpv4"
+	[ipq806x]="ipq806x/generic eabi"
 )
 
 TARGET_PATH="${TARGET_MAP[$TARGET]%% *}"
