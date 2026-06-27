@@ -3,7 +3,6 @@
 'require uci';
 'require form';
 'require rpc';
-'require fs';
 
 var callInitAction = rpc.declare({
 	object: 'luci',
@@ -12,12 +11,18 @@ var callInitAction = rpc.declare({
 	expect: { result: false }
 });
 
+var callServiceList = rpc.declare({
+	object: 'service',
+	method: 'list',
+	params: ['name'],
+	expect: { }
+});
+
 return view.extend({
 	load: function() {
-		return Promise.all([
-			uci.load('multicast-relay'),
-			fs.exec('/etc/init.d/multicast-relay', ['status'])
-		]);
+		return uci.load('multicast-relay').then(function() {
+		return callServiceList('multicast-relay');
+	});
 	},
 
 	handleRestart: function(m, ev) {
@@ -36,7 +41,7 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var running = (data[1] && data[1].code === 0);
+		var running = !!(data && data['multicast-relay'] && data['multicast-relay'].running);
 
 		var m, s, o;
 

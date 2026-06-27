@@ -3,7 +3,8 @@
 		"description": "Grant access to Multicast Relay configuration",
 		"read": {
 			"ubus": {
-				"luci": [ "setInitAction" ]
+				"luci": [ "setInitAction" ],
+				"service": [ "list" ]
 			},
 			"uci": [ "multicast-relay" ]
 		},
