@@ -3,6 +3,7 @@
 'require uci';
 'require form';
 'require rpc';
+'require fs';
 
 var callInitAction = rpc.declare({
 	object: 'luci',
@@ -14,11 +15,29 @@ var callInitAction = rpc.declare({
 return view.extend({
 	load: function() {
 		return Promise.all([
-			uci.load('multicast-relay')
+			uci.load('multicast-relay'),
+			fs.exec('/etc/init.d/multicast-relay', ['status'])
 		]);
 	},
 
+	handleRestart: function(m, ev) {
+		return callInitAction('multicast-relay', 'restart')
+			.then(L.bind(m.render, m));
+	},
+
+	handleStop: function(m, ev) {
+		return callInitAction('multicast-relay', 'stop')
+			.then(L.bind(m.render, m));
+	},
+
+	handleStart: function(m, ev) {
+		return callInitAction('multicast-relay', 'start')
+			.then(L.bind(m.render, m));
+	},
+
 	render: function(data) {
+		var running = (data[1] && data[1].code === 0);
+
 		var m, s, o;
 
 		m = new form.Map('multicast-relay',
@@ -26,6 +45,18 @@ return view.extend({
 			_('Relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces.'));
 
 		s = m.section(form.NamedSection, 'main', 'multicast-relay', _('Service'));
+
+		o = s.option(form.Button, '_restart', '&#160;');
+		o.inputtitle = _('Restart');
+		o.inputstyle = 'apply';
+		o.onclick = L.bind(this.handleRestart, this, m);
+
+		o = s.option(form.Button, '_stop', '&#160;');
+		o.inputtitle = running ? _('Stop') : _('Start');
+		o.inputstyle = running ? 'reset' : 'apply';
+		o.onclick = running
+			? L.bind(this.handleStop, this, m)
+			: L.bind(this.handleStart, this, m);
 
 		o = s.option(form.Flag, 'enabled', _('Enable'),
 			_('Enable the multicast relay service.'));
@@ -137,26 +168,6 @@ return view.extend({
 		o.password = true;
 		o.optional = true;
 
-		return m.render().then(function(nodes) {
-			var startBtn = E('button', {
-				'class': 'btn cbi-button-apply',
-				'click': function() {
-					return callInitAction('multicast-relay', 'restart');
-				}
-			}, _('Restart Service'));
-
-			var stopBtn = E('button', {
-				'class': 'btn cbi-button-reset',
-				'click': function() {
-					return callInitAction('multicast-relay', 'stop');
-				}
-			}, _('Stop Service'));
-
-			nodes.querySelector('.cbi-page-actions').appendChild(E('div', { 'class': 'btn cbi-button' }, [
-				startBtn, ' ', stopBtn
-			]));
-
-			return nodes;
-		});
+		return m.render();
 	}
 });

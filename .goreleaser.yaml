@@ -1,3 +1,5 @@
+version: 2
+
 builds:
   - id: multicast-relay
     main: ./cmd/multicast-relay
@@ -17,7 +19,7 @@ builds:
     goarm:
       - 7
 
-nfpm:
+nfpms:
   - id: apk
     package_name: multicast-relay
     vendor: sonroyaalmerol
@@ -27,13 +29,7 @@ nfpm:
     license: MIT
     formats:
       - apk
-    archs:
-      - armhf
-      - arm64
-      - amd64
     contents:
-      - src: multicast-relay
-        dst: /usr/bin/multicast-relay
       - src: confs/etc/init.d/multicast-relay
         dst: /etc/init.d/multicast-relay
         file_info:
@@ -54,8 +50,7 @@ nfpm:
     license: MIT
     formats:
       - apk
-    archs:
-      - all
+    meta: true
     contents:
       - src: confs/usr/share/luci/menu.d/luci-app-multicast-relay.json
         dst: /usr/share/luci/menu.d/luci-app-multicast-relay.json
@@ -63,9 +58,8 @@ nfpm:
         dst: /usr/share/rpcd/acl.d/luci-app-multicast-relay.json
       - src: confs/www/luci-static/resources/view/multicast-relay/config.js
         dst: /www/luci-static/resources/view/multicast-relay/config.js
-    depends:
+    dependencies:
       - multicast-relay
-      - luci-lua-runtime
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Tag }}_checksums.txt"
