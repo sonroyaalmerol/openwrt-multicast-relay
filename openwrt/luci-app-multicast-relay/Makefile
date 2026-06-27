@@ -7,6 +7,9 @@ PKG_RELEASE:=1
 
 PKG_MAINTAINER:=sonroyaalmerol
 PKG_LICENSE:=MIT
+PKG_SOURCE:=
+PKG_SOURCE_VERSION:=
+PKG_HASH:=skip
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -32,6 +35,9 @@ define Package/luci-app-multicast-relay/install
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/multicast-relay
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/multicast-relay/config.js $(1)/www/luci-static/resources/view/multicast-relay/
+endef
+
+define Build/Compile
 endef
 
 $(eval $(call BuildPackage,luci-app-multicast-relay))

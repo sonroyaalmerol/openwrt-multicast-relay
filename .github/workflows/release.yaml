@@ -43,11 +43,26 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${VERSION}/" openwrt/multicast-relay/Makefile
           sed -i "s/PKG_SOURCE_VERSION:=v.*/PKG_SOURCE_VERSION:=v${VERSION}/" openwrt/multicast-relay/Makefile
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${VERSION}/" openwrt/luci-app-multicast-relay/Makefile
 
       - name: configure feeds
         run: |
           cp sdk/feeds.conf.default sdk/feeds.conf
           echo "src-link multicast_relay ${GITHUB_WORKSPACE}/openwrt" >> sdk/feeds.conf
+
+      - name: patch sdk gotochain
+        run: |
+          GOLANG_DIR="${GITHUB_WORKSPACE}/sdk/feeds/packages/lang/golang"
+
+          sed -i '/^HOST_GO_VARS?=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-version.mk"
+
+          sed -i '/^GO_HOST_BUILD_VARS=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-host-build.mk"
+          sed -i '/^GO_HOST_TARGET_VARS=/,/^$/{ /PATH=.*openwrt:.*\$\$\$\$PATH"/a\\tGOTOOLCHAIN=local' "${GOLANG_DIR}/golang-host-build.mk"
+
+          sed -i '/^HOST_GO_VARS=/,/^$/{ /GOENV=off/a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-bootstrap/Makefile"
 
       - name: update and install feeds
         run: |
@@ -71,8 +86,8 @@ jobs:
       - name: collect packages
         run: |
           mkdir -p dist
-          find sdk/bin -name "multicast-relay_*.apk" -exec cp {} dist/ \;
-          find sdk/bin -name "luci-app-multicast-relay_*.apk" -exec cp {} dist/ \;
+          find sdk/bin -name "multicast-relay-*.apk" -exec cp {} dist/ \;
+          find sdk/bin -name "luci-app-multicast-relay-*.apk" -exec cp {} dist/ \;
           ls -la dist/
 
       - name: upload release

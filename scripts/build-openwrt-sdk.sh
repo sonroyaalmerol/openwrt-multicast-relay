@@ -84,6 +84,24 @@ WRAPPER
 	chmod +x "${HOME}/bin/wget"
 fi
 
+echo ">>> Patching GOTOOLCHAIN=local into SDK golang infrastructure..."
+GOLANG_DIR="${SDK}/feeds/packages/lang/golang"
+
+sed -i '/^HOST_GO_VARS?=/,/^$/ {
+    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-version.mk"
+
+sed -i '/^GO_HOST_BUILD_VARS=/,/^$/ {
+    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-host-build.mk"
+
+sed -i '/^GO_HOST_TARGET_VARS=/,/^$/ {
+    /PATH=.*openwrt:.*\$\$\$\$PATH"/ a\\tGOTOOLCHAIN=local' "${GOLANG_DIR}/golang-host-build.mk"
+
+sed -i '/^HOST_GO_VARS=/,/^$/ {
+    /GOENV=off/ a\\tGOTOOLCHAIN=local \\
+}' "${GOLANG_DIR}/golang-bootstrap/Makefile"
+
 echo ">>> Updating feeds..."
 (cd "${SDK}" && ./scripts/feeds update -a 2>&1 | tail -10)
 
@@ -105,8 +123,8 @@ echo ">>> Building luci-app-multicast-relay..."
 echo ">>> Collecting packages..."
 OUTDIR="${WORKDIR}/dist"
 mkdir -p "${OUTDIR}"
-find "${SDK}/bin" -name "multicast-relay_*.apk" -exec cp -v {} "${OUTDIR}/" \;
-find "${SDK}/bin" -name "luci-app-multicast-relay_*.apk" -exec cp -v {} "${OUTDIR}/" \;
+find "${SDK}/bin" -name "multicast-relay-*.apk" -exec cp -v {} "${OUTDIR}/" \;
+find "${SDK}/bin" -name "luci-app-multicast-relay-*.apk" -exec cp -v {} "${OUTDIR}/" \;
 
 echo "=== Done ==="
 ls -la "${OUTDIR}"/*.apk 2>/dev/null || echo "No APK packages found"
