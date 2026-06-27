@@ -7,6 +7,7 @@ import (
 
 type ifInfo struct {
 	Name      string
+	IfIndex   int
 	MAC       net.HardwareAddr
 	IP        string
 	Netmask   string
@@ -51,6 +52,7 @@ func (n *netifaces) Discover() error {
 
 			info := ifInfo{
 				Name:      iface.Name,
+				IfIndex:   iface.Index,
 				MAC:       mac,
 				IP:        ipNet.IP.String(),
 				Netmask:   maskStr,
@@ -71,5 +73,15 @@ func (n *netifaces) Resolve(spec string) (ifInfo, error) {
 	if info, ok := n.ifaces[spec]; ok {
 		return info, nil
 	}
+
+	_, ipNet, err := net.ParseCIDR(spec)
+	if err == nil {
+		for _, info := range n.ifaces {
+			if ipNet.Contains(net.ParseIP(info.IP)) {
+				return info, nil
+			}
+		}
+	}
+
 	return ifInfo{}, fmt.Errorf("interface %s does not exist", spec)
 }

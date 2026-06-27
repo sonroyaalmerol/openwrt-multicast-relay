@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -16,10 +17,18 @@ import (
 
 const etherTypeIPv4 = 0x0800
 
+var bufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 65535)
+		return &b
+	},
+}
+
 type transmitter struct {
 	relayAddr string
 	relayPort int
 	iface     string
+	ifindex   int
 	ip        string
 	mac       net.HardwareAddr
 	netmask   string
@@ -209,6 +218,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 
 				r.transmitters = append(r.transmitters, transmitter{
 					relayAddr: addr,
+					ifindex:   info.IfIndex,
 					relayPort: port,
 					iface:     info.Name,
 					ip:        info.IP,
@@ -248,6 +258,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 
 				r.transmitters = append(r.transmitters, transmitter{
 					relayAddr: addr,
+					ifindex:   info.IfIndex,
 					relayPort: port,
 					iface:     info.Name,
 					ip:        info.IP,
@@ -275,7 +286,9 @@ func (r *Relay) Run(ctx context.Context) error {
 	}
 
 	recentSSDP := make(map[string]uint16)
-	buf := make([]byte, 65535)
+	bufPtr := bufPool.Get().(*[]byte)
+	defer bufPool.Put(bufPtr)
+	buf := *bufPtr
 
 	for {
 		select {
@@ -289,17 +302,20 @@ func (r *Relay) Run(ctx context.Context) error {
 		}
 		r.connectRemotes()
 
-		for _, conn := range r.remoteConns {
-			go r.readRemote(conn)
-		}
-		for i := range r.remoteAddrs {
-			if r.remoteAddrs[i].conn != nil {
-				go r.readRemoteOutbound(r.remoteAddrs[i].conn)
+		remoteStarted := false
+		if !remoteStarted {
+			for _, conn := range r.remoteConns {
+				go r.readRemote(conn)
 			}
+			for i := range r.remoteAddrs {
+				if r.remoteAddrs[i].conn != nil {
+					go r.readRemoteOutbound(r.remoteAddrs[i].conn)
+				}
+			}
+			remoteStarted = true
 		}
 
 		var pollFds []unix.PollFd
-
 		for _, fd := range r.receivers {
 			pollFds = append(pollFds, unix.PollFd{Fd: int32(fd), Events: unix.POLLIN})
 		}
@@ -439,8 +455,7 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	}
 
 	ipChecksum := binary.BigEndian.Uint16(data[10:12])
-	dup := slices.Contains(r.recentChecksum, ipChecksum)
-	if dup {
+	if slices.Contains(r.recentChecksum, ipChecksum) {
 		return
 	}
 	r.recentChecksum = append(r.recentChecksum, ipChecksum)
@@ -509,8 +524,7 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 						maskBits = mustAtoi(parts[1])
 					}
 					if onNetwork(srcAddr, netStr, cidrToNetmask(maskBits)) {
-						found := slices.Contains(ifaces, tx.iface)
-						if !found {
+						if !slices.Contains(ifaces, tx.iface) {
 							skip = true
 							break
 						}
@@ -613,17 +627,22 @@ func (r *Relay) transmitPacket(tx transmitter, destMAC net.HardwareAddr, ipHdrLe
 			binary.BigEndian.PutUint16(etherFrame[12:14], etherTypeIPv4)
 			copy(etherFrame[14:], outIP)
 
-			if err := unix.Sendto(tx.fd, etherFrame, 0, nil); err != nil {
-				if err == unix.ENXIO {
-					r.logger.Info("interface gone, skipping", "iface", tx.iface)
-				} else {
-					r.logger.Info("send error", "iface", tx.iface, "err", err)
-				}
+			var hwAddr [8]byte
+			copy(hwAddr[:6], destMAC)
+			sa := &unix.SockaddrLinklayer{
+				Protocol: htons(etherTypeIPv4),
+				Ifindex:  tx.ifindex,
+				Hatype:   unix.ARPHRD_ETHER,
+				Pkttype:  0,
+				Halen:    6,
+				Addr:     hwAddr,
+			}
+			if err := unix.Sendto(tx.fd, etherFrame, 0, sa); err != nil {
+				r.logger.Info("send error", "iface", tx.iface, "err", err)
 			}
 		} else {
-			dstIP := net.IP(outIP[16:20])
 			var addr unix.SockaddrInet4
-			copy(addr.Addr[:], dstIP.To4())
+			copy(addr.Addr[:], net.IP(outIP[16:20]).To4())
 			if err := unix.Sendto(tx.fd, outIP, 0, &addr); err != nil {
 				r.logger.Info("send error", "iface", tx.iface, "err", err)
 			}
@@ -667,8 +686,7 @@ func (r *Relay) acceptRemote() {
 		return
 	}
 	addr := conn.RemoteAddr().(*net.TCPAddr).IP.String()
-	allowed := slices.Contains(r.cfg.ListenAddrs, addr)
-	if !allowed {
+	if !slices.Contains(r.cfg.ListenAddrs, addr) {
 		r.logger.Info("refusing connection", "addr", addr)
 		_ = conn.Close()
 		return
