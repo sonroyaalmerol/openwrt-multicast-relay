@@ -1,8 +1,8 @@
 # openwrt-multicast-relay
 
-Multicast relay for OpenWrt — relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces.
+Multicast relay for OpenWrt. Relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces.
 
-A Go port of [alsmith/multicast-relay](https://github.com/alsmith/multicast-relay), designed as a lightweight OpenWrt package (APK) with no Python runtime required (~2 MB binary vs ~23 MB Python install).
+Lightweight Go binary (~2 MB) packaged as an OpenWrt APK. No runtime dependencies.
 
 ## Features
 
@@ -79,9 +79,9 @@ goreleaser build --snapshot --clean
 ```
 
 Cross-compilation targets:
-- `armhf` (armv7, GOARM=7) — most OpenWrt routers
-- `arm64` — newer routers
-- `amd64` — x86 routers/VMs
+- `armhf` (armv7, GOARM=7): most OpenWrt routers
+- `arm64`: newer routers
+- `amd64`: x86 routers/VMs
 
 ## License
 
