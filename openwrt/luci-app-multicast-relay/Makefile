@@ -15,7 +15,7 @@ define Package/luci-app-multicast-relay
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=LuCI support for Multicast Relay
-	DEPENDS:=+multicast-relay +luci-base
+	DEPENDS:=+multicast-relay
 	PKGARCH:=all
 endef
 
