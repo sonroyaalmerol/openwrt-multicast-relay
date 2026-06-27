@@ -52,14 +52,14 @@ jobs:
           cp sdk/feeds.conf.default sdk/feeds.conf
           echo "src-link multicast_relay ${GITHUB_WORKSPACE}/openwrt" >> sdk/feeds.conf
 
-      - name: patch sdk golang for offline builds
-        run: python3 scripts/patch-sdk-gotochain.py "${GITHUB_WORKSPACE}/sdk/feeds/packages/lang/golang"
-
       - name: update and install feeds
         run: |
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: patch sdk golang for offline builds
+        run: python3 scripts/patch-sdk-gotochain.py "${GITHUB_WORKSPACE}/sdk/feeds/packages/lang/golang"
 
       - name: enable packages in config
         run: |
