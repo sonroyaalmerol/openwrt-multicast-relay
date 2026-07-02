@@ -4,3 +4,5 @@
 *.tar.gz
 *.tar.zst
 /multicast-relay
+keys/*.sec
+keys/*.pem.sec
