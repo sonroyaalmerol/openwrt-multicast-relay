@@ -1,0 +1,158 @@
+project_name: multicast-relay
+
+version: 0.1.4
+
+go:
+  module: github.com/sonroyaalmerol/openwrt-multicast-relay
+  main: ./cmd/multicast-relay
+  binary: multicast-relay
+  ldflags:
+    - -s
+    - -w
+  vars:
+    - main.version={{ .Version }}
+
+sdk:
+  openwrt_version: "25.12.4"
+  gcc_version: "14.3.0"
+  libc: musl
+  toolchain_target: ipq806x/generic
+
+targets:
+  - openwrt: armsr/armv7
+  - openwrt: armsr/armv8
+  - openwrt: imx/cortexa7
+  - openwrt: imx/cortexa9
+  - openwrt: imx/cortexa53
+  - openwrt: mvebu/cortexa9
+  - openwrt: mvebu/cortexa53
+  - openwrt: mvebu/cortexa72
+  - openwrt: layerscape/armv7
+  - openwrt: layerscape/armv8_64b
+  - openwrt: bcm27xx/bcm2708
+  - openwrt: bcm27xx/bcm2709
+  - openwrt: bcm27xx/bcm2710
+  - openwrt: bcm27xx/bcm2711
+  - openwrt: bcm27xx/bcm2712
+  - openwrt: sunxi/cortexa7
+  - openwrt: sunxi/cortexa8
+  - openwrt: sunxi/cortexa53
+  - openwrt: sunxi/arm926ejs
+  - openwrt: mediatek/mt7623
+  - openwrt: mediatek/mt7629
+  - openwrt: mediatek/mt7622
+  - openwrt: mediatek/filogic
+  - openwrt: qualcommax/ipq807x
+  - openwrt: qualcommax/ipq60xx
+  - openwrt: qualcommax/ipq50xx
+  - openwrt: rockchip/armv8
+  - openwrt: stm32/stm32mp1
+  - openwrt: x86/64
+  - openwrt: x86/generic
+  - openwrt: x86/legacy
+  - openwrt: x86/geode
+  - openwrt: lantiq/xrx200
+  - openwrt: lantiq/xrx200_legacy
+  - openwrt: lantiq/xway
+  - openwrt: lantiq/xway_legacy
+  - openwrt: lantiq/falcon
+  - openwrt: lantiq/ase
+  - openwrt: malta/be
+  - openwrt: malta/le
+  - openwrt: malta/be64
+  - openwrt: malta/le64
+  - openwrt: ramips/mt7620
+  - openwrt: ramips/mt7621
+  - openwrt: ramips/mt76x8
+  - openwrt: ramips/rt305x
+  - openwrt: ramips/rt3883
+  - openwrt: ramips/rt288x
+  - openwrt: siflower/sf19a2890
+  - openwrt: siflower/sf21
+  - openwrt: bcm47xx/generic
+  - openwrt: bcm47xx/legacy
+  - openwrt: bcm47xx/mips74k
+  - openwrt: bmips/bcm6318
+  - openwrt: bmips/bcm6328
+  - openwrt: bmips/bcm6358
+  - openwrt: bmips/bcm6362
+  - openwrt: bmips/bcm6368
+  - openwrt: bmips/bcm63268
+  - openwrt: realtek/rtl838x
+  - openwrt: realtek/rtl839x
+  - openwrt: realtek/rtl930x
+  - openwrt: realtek/rtl930x_nand
+  - openwrt: realtek/rtl931x
+  - openwrt: realtek/rtl931x_nand
+  - openwrt: ath79/generic
+  - openwrt: ath79/mikrotik
+  - openwrt: ath79/nand
+  - openwrt: ath79/tiny
+  - openwrt: d1/generic
+  - openwrt: sifiveu/generic
+  - openwrt: starfive/generic
+  - openwrt: microchipsw/lan969x
+  - openwrt: ipq40xx/generic
+  - openwrt: ipq40xx/chromium
+  - openwrt: ipq40xx/mikrotik
+  - openwrt: ipq806x/generic
+  - openwrt: ipq806x/chromium
+  - openwrt: bcm4908/generic
+  - openwrt: bcm53xx/generic
+  - openwrt: tegra/generic
+  - openwrt: zynq/generic
+  - openwrt: omap/generic
+  - openwrt: pistachio/generic
+  - openwrt: loongarch64/generic
+  - openwrt: kirkwood/generic
+  - openwrt: mxs/generic
+  - openwrt: at91/sam9x
+  - openwrt: at91/sama5
+  - openwrt: at91/sama7
+
+packages:
+  - name: multicast-relay
+    description: "Relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces."
+    license: MIT
+    maintainer: sonroyaalmerol
+    url: https://github.com/sonroyaalmerol/openwrt-multicast-relay
+    depends:
+      - libc
+    binary: true
+    binary_dest: /usr/bin
+    files:
+      - src: openwrt/multicast-relay/files/etc/init.d/multicast-relay
+        dest: /etc/init.d/multicast-relay
+        mode: "0755"
+      - src: openwrt/multicast-relay/files/etc/config/multicast-relay
+        dest: /etc/config/multicast-relay
+        mode: "0600"
+        conf: true
+    conffiles:
+      - /etc/config/multicast-relay
+
+  - name: luci-app-multicast-relay
+    description: "LuCI web interface for configuring multicast-relay."
+    license: MIT
+    maintainer: sonroyaalmerol
+    url: https://github.com/sonroyaalmerol/openwrt-multicast-relay
+    depends:
+      - multicast-relay
+    arch_all: true
+    files:
+      - src: openwrt/luci-app-multicast-relay/root/usr/share/luci/menu.d/luci-app-multicast-relay.json
+        dest: /usr/share/luci/menu.d/luci-app-multicast-relay.json
+        mode: "0644"
+      - src: openwrt/luci-app-multicast-relay/root/usr/share/rpcd/acl.d/luci-app-multicast-relay.json
+        dest: /usr/share/rpcd/acl.d/luci-app-multicast-relay.json
+        mode: "0644"
+      - src: openwrt/luci-app-multicast-relay/htdocs/luci-static/resources/view/multicast-relay/config.js
+        dest: /www/luci-static/resources/view/multicast-relay/config.js
+        mode: "0644"
+
+release:
+  sign_key_env: APK_SIGN_KEY
+  github:
+    owner: sonroyaalmerol
+    name: openwrt-multicast-relay
+  pages: true
