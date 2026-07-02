@@ -30,37 +30,34 @@ jobs:
           go-version: "1.26"
 
       - name: install openwrt-releaser
-        run: go install github.com/sonroyaalmerol/go-openwrt-releaser/cmd/openwrt-releaser@v0.1.0
+        run: go install github.com/sonroyaalmerol/go-openwrt-releaser/cmd/openwrt-releaser@main
 
       - name: extract version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: build and package all targets
-        run: openwrt-releaser --config openwrt-releaser.yaml --root . --skip-release
+        run: openwrt-releaser --config openwrt-releaser.yaml --root . --skip-release --skip-index
 
       - name: collect packages
         run: |
-          mkdir -p dist
-          find . -path ./dist -prune -o -name "*.apk" -print | while read -f; do
-            cp "$f" dist/
-          done
-          ls -la dist/
+          mkdir -p dist/feed
+          find . -path ./dist -prune -o -name "*.apk" -print -exec cp {} dist/feed/ \;
+          ls -la dist/feed/
 
       - name: upload release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.apk
+          files: dist/feed/*.apk
 
       - name: prepare signing key
         env:
           APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
         run: |
-          mkdir -p feed
           if [ -n "$APK_SIGN_KEY" ]; then
-            printf '%s\n' "$APK_SIGN_KEY" > feed/private-key.pem
-            openssl ec -in feed/private-key.pem -pubout -out feed/multicast-relay.pem 2>/dev/null
+            printf '%s\n' "$APK_SIGN_KEY" > dist/feed/private-key.pem
+            openssl ec -in dist/feed/private-key.pem -pubout -out dist/feed/multicast-relay.pem 2>/dev/null
             echo "using secret APK_SIGN_KEY"
           else
             echo "::warning::APK_SIGN_KEY secret not set; feed will be unsigned"
@@ -68,16 +65,13 @@ jobs:
 
       - name: generate apk repository index
         run: |
-          cd dist
-          APK="$(find .. -path '*/.owrt-sdk-cache/host/bin/apk' -type f | head -1)"
-          ARGS=(--allow-untrusted --output packages.adb *.apk)
-          if [ -f ../feed/private-key.pem ]; then
-            ARGS=(--allow-untrusted --sign-key ../feed/private-key.pem --output packages.adb *.apk)
+          APK="$(find . -path '*/.owrt-sdk-cache/host/bin/apk' -type f | head -1)"
+          ARGS=(--allow-untrusted --output dist/feed/packages.adb dist/feed/*.apk)
+          if [ -f dist/feed/private-key.pem ]; then
+            ARGS=(--allow-untrusted --sign-key dist/feed/private-key.pem --output dist/feed/packages.adb dist/feed/*.apk)
           fi
           "$APK" mkndx "${ARGS[@]}"
-          cp packages.adb ../feed/
-          cp *.apk ../feed/
-          ls -la ../feed/
+          ls -la dist/feed/
 
       - name: setup pages
         uses: actions/configure-pages@v5
@@ -85,7 +79,7 @@ jobs:
       - name: upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: feed
+          path: dist/feed
 
       - name: deploy to github pages
         uses: actions/deploy-pages@v4
