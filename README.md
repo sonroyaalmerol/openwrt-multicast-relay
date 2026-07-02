@@ -1,8 +1,9 @@
 # openwrt-multicast-relay
 
-Multicast relay for OpenWrt. Relay mDNS, SSDP, and other multicast/broadcast traffic between network interfaces.
+Multicast relay for OpenWrt. Relay mDNS, SSDP, and other multicast/broadcast
+traffic between network interfaces.
 
-Lightweight Go binary (~2 MB) packaged as an OpenWrt APK. No runtime dependencies.
+Lightweight Go binary with no runtime dependencies.
 
 ## Features
 
@@ -14,17 +15,29 @@ Lightweight Go binary (~2 MB) packaged as an OpenWrt APK. No runtime dependencie
 - Masquerade mode (NAT-like source IP rewriting)
 - Remote relay over TCP with optional AES encryption
 - Interface filtering (JSON config)
-- OpenWrt procd init script included
+- LuCI web interface included
 
 ## Installation
 
-Download the APK package from [releases](https://github.com/sonroyaalmerol/openwrt-multicast-relay/releases) and install:
+### From feed
 
 ```sh
-opkg install multicast-relay_*.apk
+echo "src/gz openwrt-multicast-relay https://sonroyaalmerol.github.io/openwrt-multicast-relay" >> /etc/apk/repositories
+apk add multicast-relay
+apk add luci-app-multicast-relay
 ```
 
-Or build from source:
+### From release
+
+Download the APK for your architecture from
+[releases](https://github.com/sonroyaalmerol/openwrt-multicast-relay/releases)
+and install:
+
+```sh
+apk add --allow-untrusted multicast-relay-*_arm_cortex-a15_neon-vfpv4.apk
+```
+
+### From source
 
 ```sh
 go build ./cmd/multicast-relay
@@ -32,13 +45,13 @@ go build ./cmd/multicast-relay
 
 ## Usage
 
-### Command Line
+### Command line
 
 ```sh
-multicast-relay --foreground --interfaces 192.168.1.0/24,192.168.3.0/24
+multicast-relay --interfaces 192.168.1.0/24,192.168.3.0/24
 ```
 
-### OpenWrt UCI Configuration
+### UCI configuration
 
 ```sh
 uci set multicast-relay.general.enabled=1
@@ -50,12 +63,12 @@ uci commit multicast-relay
 ### Options
 
 | Flag | Description |
-|------|-------------|
-| `--interfaces` | Comma-separated list of interfaces/networks to relay between (required, min 2) |
-| `--noTransmitInterfaces` | Interfaces to listen on but not transmit from |
-| `--ssdpUnicastAddr` | IP address for SSDP unicast reply relay |
+|---|---|
+| `--interfaces` | Comma-separated network prefixes to relay between (required, min 2) |
+| `--noTransmitInterfaces` | Listen but don't retransmit from these |
+| `--ssdpUnicastAddr` | IP for SSDP unicast reply relay |
 | `--oneInterface` | Single interface connected to two networks |
-| `--relay` | Additional multicast/broadcast address:port to relay |
+| `--relay` | Additional multicast/broadcast address:port |
 | `--noMDNS` | Do not relay mDNS |
 | `--noSSDP` | Do not relay SSDP |
 | `--noSonosDiscovery` | Do not relay Sonos discovery |
@@ -64,24 +77,28 @@ uci commit multicast-relay
 | `--masquerade` | Masquerade packets from specified interfaces |
 | `--ttl` | Set TTL on outbound packets |
 | `--wait` | Wait for IPv4 address assignment |
-| `--listen` | Listen for remote relay connections (comma-separated IPs) |
-| `--remote` | Connect to remote relay (comma-separated IPs) |
+| `--listen` | Listen for remote relay connections |
+| `--remote` | Connect to remote relay |
 | `--remotePort` | TCP port for remote relay (default: 1900) |
 | `--aes` | AES encryption key for remote relay |
 | `--foreground` | Run in foreground |
 | `--logfile` | Log file path |
-| `--verbose` | Enable verbose logging |
+| `--verbose` | Verbose logging |
 
-## Building for OpenWrt
+## Supported architectures
 
-```sh
-goreleaser build --snapshot --clean
-```
+Prebuilt APKs are available for all 28 distinct CPU targets supported by
+Go on OpenWrt 25.12:
 
-Cross-compilation targets:
-- `armhf` (armv7, GOARM=7): most OpenWrt routers
-- `arm64`: newer routers
-- `amd64`: x86 routers/VMs
+aarch64_cortex-a53, aarch64_cortex-a55, aarch64_cortex-a72,
+aarch64_cortex-a76, aarch64_generic, arm_cortex-a15_neon-vfpv4,
+arm_cortex-a7_neon-vfpv4, arm_cortex-a9_neon,
+arm_cortex-a9_vfpv3-d16, arm_arm1176jzf-s_vfp, arm_arm926ej-s,
+arm_cortex-a5_vfpv4, arm_cortex-a7_vfpv4, arm_cortex-a8_vfpv3,
+arm_xscale, i386_geode, i386_pentium-mmx, i386_pentium4,
+loongarch64_generic, mips64_24kc, mips64el_24kc, mips_24kc,
+mips_4kec, mips_mips32, mipsel_24kc, mipsel_mips32,
+riscv64_rv64gc, x86_64
 
 ## License
 

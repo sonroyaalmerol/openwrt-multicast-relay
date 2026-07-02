@@ -42,9 +42,11 @@ jobs:
       - name: collect packages
         run: |
           mkdir -p dist/feed
-          find dist -mindepth 2 -name "*.apk" -exec cp {} dist/feed/ \;
-          echo "=== collected $(ls dist/feed/*.apk | wc -l) packages ==="
+          find dist -path dist/feed -prune -o -name "*.apk" -print -exec cp {} dist/feed/ \;
+          count=$(find dist/feed -name "*.apk" | wc -l)
+          echo "=== collected $count packages ==="
           ls -la dist/feed/ | head -20
+          [ "$count" -gt 0 ] || { echo "ERROR: no packages collected"; exit 1; }
 
       - name: upload release
         if: startsWith(github.ref, 'refs/tags/v')
