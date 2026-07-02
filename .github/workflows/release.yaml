@@ -65,7 +65,7 @@ jobs:
 
       - name: generate apk repository index
         run: |
-          APK="$(find . -path '*/.owrt-sdk-cache/host/bin/apk' -type f | head -1)"
+          APK="$(pwd)/.owrt-sdk-cache/host/bin/apk"
           cd dist/feed
           if [ -f private-key.pem ]; then
             "$APK" mkndx --allow-untrusted --sign-key private-key.pem --output packages.adb *.apk
