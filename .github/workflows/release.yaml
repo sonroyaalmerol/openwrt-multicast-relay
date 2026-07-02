@@ -30,7 +30,7 @@ jobs:
           go-version: "1.26"
 
       - name: install openwrt-releaser
-        run: go install github.com/sonroyaalmerol/go-openwrt-releaser/cmd/openwrt-releaser@main
+        run: go install github.com/sonroyaalmerol/go-openwrt-releaser/cmd/openwrt-releaser@v0.1.1
 
       - name: extract version from tag
         id: version
