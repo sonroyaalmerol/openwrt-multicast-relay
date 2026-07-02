@@ -84,3 +84,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist/feed
+
+      - name: deploy to github pages
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
