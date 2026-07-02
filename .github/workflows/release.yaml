@@ -42,8 +42,9 @@ jobs:
       - name: collect packages
         run: |
           mkdir -p dist/feed
-          find . -path ./dist -prune -o -name "*.apk" -print -exec cp {} dist/feed/ \;
-          ls -la dist/feed/
+          find dist -mindepth 2 -name "*.apk" -exec cp {} dist/feed/ \;
+          echo "=== collected $(ls dist/feed/*.apk | wc -l) packages ==="
+          ls -la dist/feed/ | head -20
 
       - name: upload release
         if: startsWith(github.ref, 'refs/tags/v')
