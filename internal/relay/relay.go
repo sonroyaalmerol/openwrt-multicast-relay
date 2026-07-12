@@ -617,6 +617,8 @@ func (r *Relay) transmitPacket(tx transmitter, destMAC net.HardwareAddr, ipHdrLe
 		binary.BigEndian.PutUint16(outIP[ipHdrLen+6:ipHdrLen+8], udpChecksum)
 		copy(outIP[ipHdrLen+8:], dataFrag)
 
+		outIP[10] = 0
+		outIP[11] = 0
 		chksum := computeIPChecksum(outIP[:ipHdrLen])
 		binary.BigEndian.PutUint16(outIP[10:12], chksum)
 
