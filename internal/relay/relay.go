@@ -24,6 +24,24 @@ var bufPool = sync.Pool{
 	},
 }
 
+var pktPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 65535)
+		return &b
+	},
+}
+
+var txBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 65535)
+		return &b
+	},
+}
+
+func ip4Str(b []byte) string {
+	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
+}
+
 type transmitter struct {
 	relayAddr string
 	relayPort int
@@ -35,6 +53,12 @@ type transmitter struct {
 	broadcast string
 	fd        int
 	service   string
+	rxOnly    bool
+}
+
+type receiver struct {
+	fd       int
+	etherHdr bool
 }
 
 type remoteConn struct {
@@ -50,11 +74,12 @@ type Relay struct {
 
 	allIfaces    []transmitter
 	transmitters []transmitter
-	receivers    []int
+	receivers    []receiver
 	bindings     map[[2]string]bool
 	etherAddrs   map[string]net.HardwareAddr
 
 	recentChecksum []uint16
+	cksumIdx       int
 
 	listenSock  *net.TCPListener
 	remoteAddrs []remoteConn
@@ -108,6 +133,8 @@ func New(cfg *Config) (*Relay, error) {
 		etherAddrs: make(map[string]net.HardwareAddr),
 		aes:        c,
 		remoteCh:   make(chan []byte, 256),
+
+		recentChecksum: make([]uint16, 256),
 	}
 
 	relays := cfg.DefaultRelays()
@@ -161,7 +188,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 			_ = unix.Close(fd)
 			return fmt.Errorf("bind raw socket: %w", err)
 		}
-		r.receivers = append(r.receivers, fd)
+		r.receivers = append(r.receivers, receiver{fd: fd})
 	}
 
 	if isMulticast(addr) {
@@ -196,7 +223,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 					_ = unix.Close(bfd)
 					return fmt.Errorf("bind broadcast socket: %w", err)
 				}
-				r.receivers = append(r.receivers, bfd)
+				r.receivers = append(r.receivers, receiver{fd: bfd})
 			} else if isMulticast(addr) {
 				var mreq unix.IPMreqn
 				copy(mreq.Multiaddr[:], parsedIP)
@@ -239,7 +266,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 			_ = unix.Close(fd)
 			return fmt.Errorf("bind mcast socket: %w", err)
 		}
-		r.receivers = append(r.receivers, fd)
+		r.receivers = append(r.receivers, receiver{fd: fd})
 	} else {
 		for _, ifaceSpec := range r.cfg.Interfaces {
 			info, err := r.nif.Resolve(ifaceSpec)
@@ -285,19 +312,38 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 				break
 			}
 		}
-		if !dup {
-			r.allIfaces = append(r.allIfaces, transmitter{
-				relayAddr: addr,
-				ifindex:   info.IfIndex,
-				relayPort: port,
-				iface:     info.Name,
-				ip:        info.IP,
-				mac:       info.MAC,
-				netmask:   info.Netmask,
-				broadcast: info.Broadcast,
-				service:   service,
-			})
+		if dup {
+			continue
 		}
+		entry := transmitter{
+			relayAddr: addr,
+			ifindex:   info.IfIndex,
+			relayPort: port,
+			iface:     info.Name,
+			ip:        info.IP,
+			mac:       info.MAC,
+			netmask:   info.Netmask,
+			broadcast: info.Broadcast,
+			service:   service,
+		}
+		if containsStr(r.cfg.NoTransmitIfaces, info.Name) {
+			rxfd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(etherTypeIPv4)))
+			if err != nil {
+				return fmt.Errorf("create rx packet socket for %s: %w", info.Name, err)
+			}
+			sll := &unix.SockaddrLinklayer{
+				Protocol: htons(etherTypeIPv4),
+				Ifindex:  info.IfIndex,
+			}
+			if err := unix.Bind(rxfd, sll); err != nil {
+				_ = unix.Close(rxfd)
+				return fmt.Errorf("bind rx packet socket to %s: %w", info.Name, err)
+			}
+			entry.fd = rxfd
+			entry.rxOnly = true
+			r.receivers = append(r.receivers, receiver{fd: rxfd, etherHdr: true})
+		}
+		r.allIfaces = append(r.allIfaces, entry)
 	}
 
 	r.bindings[[2]string{addr, fmt.Sprintf("%d", port)}] = true
@@ -318,6 +364,20 @@ func (r *Relay) Run(ctx context.Context) error {
 	defer bufPool.Put(bufPtr)
 	buf := *bufPtr
 
+	pollFds := make([]unix.PollFd, 0, len(r.receivers))
+	for _, rc := range r.receivers {
+		pollFds = append(pollFds, unix.PollFd{Fd: int32(rc.fd), Events: unix.POLLIN})
+	}
+
+	for _, conn := range r.remoteConns {
+		go r.readRemote(conn)
+	}
+	for i := range r.remoteAddrs {
+		if r.remoteAddrs[i].conn != nil {
+			go r.readRemoteOutbound(r.remoteAddrs[i].conn)
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -330,24 +390,6 @@ func (r *Relay) Run(ctx context.Context) error {
 		}
 		r.connectRemotes()
 
-		remoteStarted := false
-		if !remoteStarted {
-			for _, conn := range r.remoteConns {
-				go r.readRemote(conn)
-			}
-			for i := range r.remoteAddrs {
-				if r.remoteAddrs[i].conn != nil {
-					go r.readRemoteOutbound(r.remoteAddrs[i].conn)
-				}
-			}
-			remoteStarted = true
-		}
-
-		var pollFds []unix.PollFd
-		for _, fd := range r.receivers {
-			pollFds = append(pollFds, unix.PollFd{Fd: int32(fd), Events: unix.POLLIN})
-		}
-
 		if len(pollFds) == 0 && r.remoteCh == nil {
 			time.Sleep(100 * time.Millisecond)
 			continue
@@ -359,12 +401,12 @@ func (r *Relay) Run(ctx context.Context) error {
 				r.logger.Info("poll error", "err", err)
 			}
 
-			for _, pfd := range pollFds {
-				if pfd.Revents&unix.POLLIN == 0 {
+			for i := range pollFds {
+				if pollFds[i].Revents&unix.POLLIN == 0 {
 					continue
 				}
 
-				n, _, err := unix.Recvfrom(int(pfd.Fd), buf, 0)
+				n, _, err := unix.Recvfrom(int(pollFds[i].Fd), buf, 0)
 				if err != nil {
 					if err == unix.EAGAIN || err == unix.EINTR {
 						continue
@@ -372,13 +414,23 @@ func (r *Relay) Run(ctx context.Context) error {
 					r.logger.Info("recv error", "err", err)
 					continue
 				}
-				if n < 20 {
+
+				offset := 0
+				if r.receivers[i].etherHdr {
+					if n < 34 {
+						continue
+					}
+					offset = 14
+				}
+				if n-offset < 20 {
 					continue
 				}
 
-				data := make([]byte, n)
-				copy(data, buf[:n])
+				pktPtr := pktPool.Get().(*[]byte)
+				data := (*pktPtr)[:n-offset]
+				copy(data, buf[offset:n])
 				r.handlePacket(data, "local", &recentSSDP)
+				pktPool.Put(pktPtr)
 			}
 		}
 
@@ -450,8 +502,8 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 		return
 	}
 
-	srcAddr := net.IP(data[12:16]).String()
-	dstAddr := net.IP(data[16:20]).String()
+	srcIP := data[12:16]
+	dstIP := data[16:20]
 
 	if ipHdrLen+4 > len(data) {
 		return
@@ -459,10 +511,13 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	srcPort := binary.BigEndian.Uint16(data[ipHdrLen : ipHdrLen+2])
 	dstPort := binary.BigEndian.Uint16(data[ipHdrLen+2 : ipHdrLen+4])
 
+	srcAddr := ip4Str(srcIP)
+	dstAddr := ip4Str(dstIP)
+
 	receivingIface := ""
 	if source == "local" {
 		for _, tx := range r.allIfaces {
-			if tx.relayAddr == dstAddr && tx.relayPort == int(dstPort) && onNetwork(net.IP(data[12:16]).String(), tx.ip, tx.netmask) {
+			if tx.relayAddr == dstAddr && tx.relayPort == int(dstPort) && onNetworkIP(srcIP, tx.ip, tx.netmask) {
 				receivingIface = tx.iface
 				break
 			}
@@ -486,10 +541,8 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	if slices.Contains(r.recentChecksum, ipChecksum) {
 		return
 	}
-	r.recentChecksum = append(r.recentChecksum, ipChecksum)
-	if len(r.recentChecksum) > 256 {
-		r.recentChecksum = r.recentChecksum[1:]
-	}
+	r.recentChecksum[r.cksumIdx] = ipChecksum
+	r.cksumIdx = (r.cksumIdx + 1) % len(r.recentChecksum)
 
 	origSrcAddr := srcAddr
 	origSrcPort := srcPort
@@ -508,7 +561,7 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 			srcAddr = r.cfg.SSDPUnicastAddr
 			srcPort = SSDPUnicastPort
 			data = modifyUDPPacket(data, ipHdrLen, net.ParseIP(srcAddr), nil, &srcPort, nil)
-			dstAddr = net.IP(data[16:20]).String()
+			dstAddr = ip4Str(data[16:20])
 		}
 	} else if r.cfg.SSDPUnicastAddr != "" && origDstAddr == r.cfg.SSDPUnicastAddr && origDstPort == SSDPUnicastPort {
 		lastPort, ok := (*recentSSDP)[srcAddr]
@@ -529,7 +582,7 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	if source == "local" {
 		broadcastPkt := false
 		for _, tx := range r.transmitters {
-			if origDstAddr == tx.relayAddr && origDstPort == uint16(tx.relayPort) && onNetwork(net.IP(data[12:16]).String(), tx.ip, tx.netmask) {
+			if origDstAddr == tx.relayAddr && origDstPort == uint16(tx.relayPort) && onNetworkIP(data[12:16], tx.ip, tx.netmask) {
 				receivingIface = tx.iface
 				if origDstAddr == tx.broadcast {
 					broadcastPkt = true
@@ -563,7 +616,8 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 				}
 			}
 
-			pktData := make([]byte, len(data))
+			pktBufPtr := pktPool.Get().(*[]byte)
+			pktData := (*pktBufPtr)[:len(data)]
 			copy(pktData, data)
 
 			curDstAddr := dstAddr
@@ -585,29 +639,32 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 			}
 
 			if origDstAddr == tx.relayAddr && origDstPort == uint16(tx.relayPort) &&
-				(r.cfg.OneInterface || !onNetwork(net.IP(pktData[12:16]).String(), tx.ip, tx.netmask)) {
+				(r.cfg.OneInterface || !onNetworkIP(pktData[12:16], tx.ip, tx.netmask)) {
 
 				if containsStr(r.cfg.Masquerade, tx.iface) {
 					copy(pktData[12:16], net.ParseIP(tx.ip).To4())
 					curSrcAddr = tx.ip
 				}
 
-				service := ""
-				if tx.service != "" {
-					service = "[" + tx.service + "] "
+				if r.cfg.Verbose {
+					service := ""
+					if tx.service != "" {
+						service = "[" + tx.service + "] "
+					}
+					masqStr := "Relayed"
+					if containsStr(r.cfg.Masquerade, tx.iface) {
+						masqStr = "Masqueraded"
+					}
+					asSrc := ""
+					if curSrcAddr != origSrcAddr || curSrcPort != origSrcPort {
+						asSrc = fmt.Sprintf(" (as %s:%d)", curSrcAddr, curSrcPort)
+					}
+					r.logger.Info(fmt.Sprintf("%s%s %d bytes from %s:%d on %s [ttl %d] to %s:%d via %s/%s%s",
+						service, masqStr, len(pktData), origSrcAddr, origSrcPort, receivingIface, ttl, curDstAddr, curDstPort, tx.iface, tx.ip, asSrc))
 				}
-				masqStr := "Relayed"
-				if containsStr(r.cfg.Masquerade, tx.iface) {
-					masqStr = "Masqueraded"
-				}
-				asSrc := ""
-				if curSrcAddr != origSrcAddr || curSrcPort != origSrcPort {
-					asSrc = fmt.Sprintf(" (as %s:%d)", curSrcAddr, curSrcPort)
-				}
-				r.logger.Info(fmt.Sprintf("%s%s %d bytes from %s:%d on %s [ttl %d] to %s:%d via %s/%s%s",
-					service, masqStr, len(pktData), origSrcAddr, origSrcPort, receivingIface, ttl, curDstAddr, curDstPort, tx.iface, tx.ip, asSrc))
 
 				r.transmitPacket(tx, mac, ipHdrLen, pktData)
+				pktPool.Put(pktBufPtr)
 			}
 		}
 	}
@@ -637,7 +694,9 @@ func (r *Relay) transmitPacket(tx transmitter, destMAC net.HardwareAddr, ipHdrLe
 			flagsOffset |= 0x4000
 		}
 
-		outIP := make([]byte, totalLen)
+		txBufPtr := txBufPool.Get().(*[]byte)
+		txBuf := *txBufPtr
+		outIP := txBuf[:totalLen]
 		copy(outIP, ipHeader)
 		binary.BigEndian.PutUint16(outIP[2:4], uint16(totalLen))
 		binary.BigEndian.PutUint16(outIP[6:8], flagsOffset)
@@ -650,8 +709,8 @@ func (r *Relay) transmitPacket(tx transmitter, destMAC net.HardwareAddr, ipHdrLe
 		chksum := computeIPChecksum(outIP[:ipHdrLen])
 		binary.BigEndian.PutUint16(outIP[10:12], chksum)
 
-		if len(destMAC) == 6 && destMAC.String() != "00:00:00:00:00:00" {
-			etherFrame := make([]byte, 14+len(outIP))
+		if len(destMAC) == 6 && (destMAC[0]|destMAC[1]|destMAC[2]|destMAC[3]|destMAC[4]|destMAC[5]) != 0 {
+			etherFrame := txBuf[totalLen : totalLen+14+len(outIP)]
 			copy(etherFrame[0:6], destMAC)
 			copy(etherFrame[6:12], tx.mac)
 			binary.BigEndian.PutUint16(etherFrame[12:14], etherTypeIPv4)
@@ -672,11 +731,12 @@ func (r *Relay) transmitPacket(tx transmitter, destMAC net.HardwareAddr, ipHdrLe
 			}
 		} else {
 			var addr unix.SockaddrInet4
-			copy(addr.Addr[:], net.IP(outIP[16:20]).To4())
+			copy(addr.Addr[:], outIP[16:20])
 			if err := unix.Sendto(tx.fd, outIP, 0, &addr); err != nil {
 				r.logger.Info("send error", "iface", tx.iface, "err", err)
 			}
 		}
+		txBufPool.Put(txBufPtr)
 	}
 }
 

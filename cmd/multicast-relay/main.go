@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/sonroyaalmerol/openwrt-multicast-relay/internal/relay"
@@ -13,6 +14,9 @@ import (
 var version = "dev"
 
 func main() {
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(64 * 1024 * 1024)
+
 	cfg, err := relay.ParseConfig(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "multicast-relay %s: %v\n", version, err)

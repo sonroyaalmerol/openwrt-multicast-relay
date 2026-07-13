@@ -24,6 +24,23 @@ func ipToUint32(ip string) uint32 {
 	return binary.BigEndian.Uint32(net.ParseIP(ip).To4())
 }
 
+func bytesEqual4(a, b []byte) bool {
+	return len(a) >= 4 && len(b) >= 4 &&
+		a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3]
+}
+
+func onNetworkIP(srcIP []byte, network, netmask string) bool {
+	netIP := net.ParseIP(network).To4()
+	mask := net.ParseIP(netmask).To4()
+	if len(netIP) < 4 || len(mask) < 4 || len(srcIP) < 4 {
+		return false
+	}
+	return (srcIP[0]&mask[0]) == (netIP[0]&mask[0]) &&
+		(srcIP[1]&mask[1]) == (netIP[1]&mask[1]) &&
+		(srcIP[2]&mask[2]) == (netIP[2]&mask[2]) &&
+		(srcIP[3]&mask[3]) == (netIP[3]&mask[3])
+}
+
 func uint32ToIP(n uint32) net.IP {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, n)
@@ -75,23 +92,26 @@ func computeIPChecksum(data []byte) uint16 {
 }
 
 func computeUDPChecksum(ipHeader, data []byte, srcPort, dstPort uint16) uint16 {
-	udpLen := 8 + len(data)
-	pseudo := make([]byte, 0, 12+udpLen)
-	pseudo = append(pseudo, ipHeader[12:20]...)
-	pseudo = append(pseudo, 0, 17)
-	pseudo = append(pseudo, byte(udpLen>>8), byte(udpLen))
-	pseudo = append(pseudo, byte(srcPort>>8), byte(srcPort))
-	pseudo = append(pseudo, byte(dstPort>>8), byte(dstPort))
-	pseudo = append(pseudo, byte(udpLen>>8), byte(udpLen))
-	pseudo = append(pseudo, 0, 0)
-	pseudo = append(pseudo, data...)
-	if len(pseudo)%2 != 0 {
-		pseudo = append(pseudo, 0)
-	}
 	var sum uint32
-	for i := 0; i+1 < len(pseudo); i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(pseudo[i : i+2]))
+
+	for i := 0; i+1 < 8; i += 2 {
+		sum += uint32(binary.BigEndian.Uint16(ipHeader[12+i:][:2]))
 	}
+
+	udpLen := uint16(8 + len(data))
+	sum += uint32(17)
+	sum += uint32(udpLen)
+	sum += uint32(srcPort)
+	sum += uint32(dstPort)
+	sum += uint32(udpLen)
+
+	for i := 0; i+1 < len(data); i += 2 {
+		sum += uint32(binary.BigEndian.Uint16(data[i:][:2]))
+	}
+	if len(data)%2 != 0 {
+		sum += uint32(data[len(data)-1]) << 8
+	}
+
 	for sum > 0xffff {
 		sum = (sum & 0xffff) + (sum >> 16)
 	}
