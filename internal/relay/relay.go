@@ -38,12 +38,50 @@ var txBufPool = sync.Pool{
 	},
 }
 
+func ipToBytes(s string) [4]byte {
+	var b [4]byte
+	parsed := net.ParseIP(s).To4()
+	if parsed != nil {
+		copy(b[:], parsed)
+	}
+	return b
+}
+
 func ip4Str(b []byte) string {
-	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
+	if len(b) < 4 {
+		return ""
+	}
+	var buf [15]byte
+	pos := 0
+	for i := range 4 {
+		v := b[i]
+		if v >= 100 {
+			buf[pos] = '0' + v/100
+			pos++
+			buf[pos] = '0' + (v/10)%10
+			pos++
+			buf[pos] = '0' + v%10
+			pos++
+		} else if v >= 10 {
+			buf[pos] = '0' + v/10
+			pos++
+			buf[pos] = '0' + v%10
+			pos++
+		} else {
+			buf[pos] = '0' + v
+			pos++
+		}
+		if i < 3 {
+			buf[pos] = '.'
+			pos++
+		}
+	}
+	return string(buf[:pos])
 }
 
 type transmitter struct {
 	relayAddr string
+	relayIP   [4]byte
 	relayPort int
 	iface     string
 	ifindex   int
@@ -246,6 +284,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 
 				r.transmitters = append(r.transmitters, transmitter{
 					relayAddr: addr,
+					relayIP:   ipToBytes(addr),
 					ifindex:   info.IfIndex,
 					relayPort: port,
 					iface:     info.Name,
@@ -286,6 +325,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 
 				r.transmitters = append(r.transmitters, transmitter{
 					relayAddr: addr,
+					relayIP:   ipToBytes(addr),
 					ifindex:   info.IfIndex,
 					relayPort: port,
 					iface:     info.Name,
@@ -317,6 +357,7 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 		}
 		entry := transmitter{
 			relayAddr: addr,
+			relayIP:   ipToBytes(addr),
 			ifindex:   info.IfIndex,
 			relayPort: port,
 			iface:     info.Name,
@@ -511,21 +552,17 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	srcPort := binary.BigEndian.Uint16(data[ipHdrLen : ipHdrLen+2])
 	dstPort := binary.BigEndian.Uint16(data[ipHdrLen+2 : ipHdrLen+4])
 
-	srcAddr := ip4Str(srcIP)
-	dstAddr := ip4Str(dstIP)
-
+	var srcAddr, dstAddr string
 	receivingIface := ""
+
 	if source == "local" {
 		for _, tx := range r.allIfaces {
-			if tx.relayAddr == dstAddr && tx.relayPort == int(dstPort) && onNetworkIP(srcIP, tx.ip, tx.netmask) {
+			if tx.relayPort == int(dstPort) && bytesEqual4(dstIP, tx.relayIP[:]) && onNetworkIP(srcIP, tx.ip, tx.netmask) {
 				receivingIface = tx.iface
 				break
 			}
 		}
 		if receivingIface == "" {
-			return
-		}
-		if !r.bindings[[2]string{dstAddr, fmt.Sprintf("%d", dstPort)}] {
 			return
 		}
 	} else {
@@ -544,26 +581,29 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 	r.recentChecksum[r.cksumIdx] = ipChecksum
 	r.cksumIdx = (r.cksumIdx + 1) % len(r.recentChecksum)
 
-	origSrcAddr := srcAddr
+	origSrcIP := srcIP
+	origDstIP := dstIP
 	origSrcPort := srcPort
-	origDstAddr := dstAddr
 	origDstPort := dstPort
 
 	var destMAC net.HardwareAddr
 
-	if r.cfg.MDNSForceUnicast && dstAddr == MDNSMcastAddr && dstPort == MDNSMcastPort {
+	if r.cfg.MDNSForceUnicast && bytesEqual4(dstIP, []byte{224, 0, 0, 251}) && dstPort == MDNSMcastPort {
 		data = mdnsSetUnicastBit(data, ipHdrLen)
 	}
 
-	if r.cfg.SSDPUnicastAddr != "" && dstAddr == SSDPMcastAddr && dstPort == SSDPMcastPort {
+	if r.cfg.SSDPUnicastAddr != "" && bytesEqual4(dstIP, []byte{239, 255, 255, 250}) && dstPort == SSDPMcastPort {
 		if bytesContains(data[ipHdrLen+8:], []byte("M-SEARCH")) || bytesContains(data[ipHdrLen+8:], []byte("NOTIFY")) {
+			srcAddr = ip4Str(srcIP)
 			(*recentSSDP)[srcAddr] = srcPort
 			srcAddr = r.cfg.SSDPUnicastAddr
 			srcPort = SSDPUnicastPort
 			data = modifyUDPPacket(data, ipHdrLen, net.ParseIP(srcAddr), nil, &srcPort, nil)
-			dstAddr = ip4Str(data[16:20])
+			dstIP = data[16:20]
+			dstAddr = ip4Str(dstIP)
 		}
-	} else if r.cfg.SSDPUnicastAddr != "" && origDstAddr == r.cfg.SSDPUnicastAddr && origDstPort == SSDPUnicastPort {
+	} else if r.cfg.SSDPUnicastAddr != "" && r.cfg.SSDPUnicastAddr == ip4Str(origDstIP) && origDstPort == SSDPUnicastPort {
+		srcAddr = ip4Str(srcIP)
 		lastPort, ok := (*recentSSDP)[srcAddr]
 		if !ok {
 			return
@@ -576,15 +616,17 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 		destMAC = mac
 		dstPort = lastPort
 		data = modifyUDPPacket(data, ipHdrLen, nil, net.ParseIP(srcAddr), nil, &dstPort)
+		dstIP = data[16:20]
 		dstAddr = srcAddr
 	}
 
 	if source == "local" {
 		broadcastPkt := false
 		for _, tx := range r.transmitters {
-			if origDstAddr == tx.relayAddr && origDstPort == uint16(tx.relayPort) && onNetworkIP(data[12:16], tx.ip, tx.netmask) {
+			if origDstPort == uint16(tx.relayPort) && bytesEqual4(origDstIP, tx.relayIP[:]) && onNetworkIP(data[12:16], tx.ip, tx.netmask) {
 				receivingIface = tx.iface
-				if origDstAddr == tx.broadcast {
+				bcastBytes := net.ParseIP(tx.broadcast).To4()
+				if bytesEqual4(origDstIP, bcastBytes) {
 					broadcastPkt = true
 				}
 			}
@@ -596,6 +638,9 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 			}
 
 			if r.cfg.FilterMap != nil {
+				if srcAddr == "" {
+					srcAddr = ip4Str(origSrcIP)
+				}
 				skip := false
 				for network, ifaces := range r.cfg.FilterMap {
 					parts := strings.SplitN(network, "/", 2)
@@ -626,6 +671,9 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 			curSrcPort := srcPort
 			mac := destMAC
 			if mac == nil {
+				if curDstAddr == "" {
+					curDstAddr = ip4Str(pktData[16:20])
+				}
 				if m, ok := r.etherAddrs[curDstAddr]; ok {
 					mac = m
 				}
@@ -634,11 +682,10 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 			if broadcastPkt {
 				curDstAddr = tx.broadcast
 				mac = broadcastIPToMAC()
-				origDstAddr = tx.broadcast
 				copy(pktData[16:20], net.ParseIP(tx.broadcast).To4())
 			}
 
-			if origDstAddr == tx.relayAddr && origDstPort == uint16(tx.relayPort) &&
+			if origDstPort == uint16(tx.relayPort) && bytesEqual4(pktData[16:20], tx.relayIP[:]) &&
 				(r.cfg.OneInterface || !onNetworkIP(pktData[12:16], tx.ip, tx.netmask)) {
 
 				if containsStr(r.cfg.Masquerade, tx.iface) {
@@ -647,6 +694,15 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 				}
 
 				if r.cfg.Verbose {
+					if srcAddr == "" {
+						srcAddr = ip4Str(origSrcIP)
+					}
+					if curSrcAddr == "" {
+						curSrcAddr = ip4Str(pktData[12:16])
+					}
+					if curDstAddr == "" {
+						curDstAddr = ip4Str(pktData[16:20])
+					}
 					service := ""
 					if tx.service != "" {
 						service = "[" + tx.service + "] "
@@ -656,11 +712,11 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 						masqStr = "Masqueraded"
 					}
 					asSrc := ""
-					if curSrcAddr != origSrcAddr || curSrcPort != origSrcPort {
+					if curSrcAddr != srcAddr || curSrcPort != origSrcPort {
 						asSrc = fmt.Sprintf(" (as %s:%d)", curSrcAddr, curSrcPort)
 					}
 					r.logger.Info(fmt.Sprintf("%s%s %d bytes from %s:%d on %s [ttl %d] to %s:%d via %s/%s%s",
-						service, masqStr, len(pktData), origSrcAddr, origSrcPort, receivingIface, ttl, curDstAddr, curDstPort, tx.iface, tx.ip, asSrc))
+						service, masqStr, len(pktData), srcAddr, origSrcPort, receivingIface, ttl, curDstAddr, curDstPort, tx.iface, tx.ip, asSrc))
 				}
 
 				r.transmitPacket(tx, mac, ipHdrLen, pktData)

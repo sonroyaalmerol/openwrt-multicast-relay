@@ -4,3 +4,4 @@
 /multicast-relay
 keys/*.sec
 keys/*.pem.sec
+relay.test
