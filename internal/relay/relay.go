@@ -48,6 +48,7 @@ type Relay struct {
 	logger *slog.Logger
 	nif    *netifaces
 
+	allIfaces    []transmitter
 	transmitters []transmitter
 	receivers    []int
 	bindings     map[[2]string]bool
@@ -272,6 +273,33 @@ func (r *Relay) addListener(addr string, port int, service string) error {
 		}
 	}
 
+	for _, ifaceSpec := range r.cfg.Interfaces {
+		info, err := r.nif.Resolve(ifaceSpec)
+		if err != nil {
+			continue
+		}
+		dup := false
+		for _, a := range r.allIfaces {
+			if a.iface == info.Name && a.relayAddr == addr {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			r.allIfaces = append(r.allIfaces, transmitter{
+				relayAddr: addr,
+				ifindex:   info.IfIndex,
+				relayPort: port,
+				iface:     info.Name,
+				ip:        info.IP,
+				mac:       info.MAC,
+				netmask:   info.Netmask,
+				broadcast: info.Broadcast,
+				service:   service,
+			})
+		}
+	}
+
 	r.bindings[[2]string{addr, fmt.Sprintf("%d", port)}] = true
 	return nil
 }
@@ -433,7 +461,7 @@ func (r *Relay) handlePacket(data []byte, source string, recentSSDP *map[string]
 
 	receivingIface := ""
 	if source == "local" {
-		for _, tx := range r.transmitters {
+		for _, tx := range r.allIfaces {
 			if tx.relayAddr == dstAddr && tx.relayPort == int(dstPort) && onNetwork(net.IP(data[12:16]).String(), tx.ip, tx.netmask) {
 				receivingIface = tx.iface
 				break
